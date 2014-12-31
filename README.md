@@ -15,3 +15,5 @@ Configuration of Kafka Sink
     agent_log.sinks.sink_test.zk.connect = 127.0.0.1:2181
     agent_log.sinks.sink_test.producer.type = async
     agent_log.sinks.sink_test.serializer.class = kafka.serializer.StringEncoder
+
+
