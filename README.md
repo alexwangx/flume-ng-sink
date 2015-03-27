@@ -27,4 +27,3 @@ Configuration of Kafka Sink
 isJson = true
 ----------
     {"timestamp":1422359573462,"host":"127.0.0.1","topic":"test_topic","path":"/logs/path","body":"logs body"}
-    
