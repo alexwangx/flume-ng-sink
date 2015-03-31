@@ -18,120 +18,138 @@
  *******************************************************************************/
 package com.sink.kafka;
 
-import com.alibaba.fastjson.JSON;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
 import kafka.javaapi.producer.Producer;
-import kafka.javaapi.producer.ProducerData;
-import org.apache.flume.*;
+import kafka.producer.KeyedMessage;
+
+import org.apache.flume.Channel;
+import org.apache.flume.Context;
+import org.apache.flume.Event;
+import org.apache.flume.EventDeliveryException;
+import org.apache.flume.Transaction;
 import org.apache.flume.conf.Configurable;
 import org.apache.flume.instrumentation.SinkCounter;
 import org.apache.flume.sink.AbstractSink;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.Map;
+import com.alibaba.fastjson.JSON;
 
 public class KafkaSink extends AbstractSink implements Configurable {
-    private static final Logger logger = LoggerFactory.getLogger(KafkaSink.class);
-    private SinkCounter sinkCounter;
-    private Producer<String, String> producer;
-    private int batchSize;
-    private String eventEncode;
-    private boolean isJson;
-    private Map<String, ArrayList<String>> map = new HashMap();
-    private Map<String, Long> timeoutMap = new HashMap();
+	private static final Logger logger = LoggerFactory
+			.getLogger(KafkaSink.class);
+	private SinkCounter sinkCounter;
+	private Producer<String, String> producer;
+	private int batchSize;
+	private String eventEncode;
+	private boolean isJson;
+	private Map<String, List<KeyedMessage<String,String>>> map 
+		= new HashMap<String, List<KeyedMessage<String,String>>>();
+	private Map<String, Long> timeoutMap = new HashMap<String, Long>();
 
-    @Override
-    public Status process() throws EventDeliveryException {
-        Channel channel = getChannel();
-        Transaction tx = channel.getTransaction();
-        Status result = Status.READY;
-        Event event;
-        String msg = null;
-        String topic = null;
-        try {
-            tx.begin();
-            event = channel.take();
-            if (event != null) {
-                sinkCounter.incrementEventDrainAttemptCount();
-                topic = event.getHeaders().get("topic");
-                if (isJson) {
-                    FormatEvent formatEvent = new FormatEvent();
-                    formatEvent.setBody(new String(event.getBody(), eventEncode));
-                    formatEvent.setHost(event.getHeaders().get("hostip"));
-                    formatEvent.setTimestamp(Long.parseLong(event.getHeaders().get("timestamp")));
-                    formatEvent.setPath(event.getHeaders().get("path"));
-                    formatEvent.setTopic(topic);
-                    msg = JSON.toJSONString(formatEvent);
-                } else {
-                    msg = new String(event.getBody(), eventEncode);
-                }
-            } else {
-                result = Status.BACKOFF;
-            }
-            dealWithLog(msg,topic);
-            tx.commit();
-            return result;
-        } catch (Exception e) {
-            try {
-                tx.rollback();
-                return Status.BACKOFF;
-            } catch (Exception e2) {
-                logger.error("kafka sink process ...  Rollback Exception:{}", e2);
-            }
-            logger.error("kafka sink process ...  KafkaSink Exception:{}", e);
-            return Status.BACKOFF;
-        } finally {
-            tx.close();
-        }
-    }
+	@Override
+	public Status process() throws EventDeliveryException {
+		Channel channel = getChannel();
+		Transaction tx = channel.getTransaction();
+		Status result = Status.READY;
+		Event event;
+		String msg = null;
+		String topic = null;
+		try {
+			tx.begin();
+			event = channel.take();
+			if (event != null) {
+				sinkCounter.incrementEventDrainAttemptCount();
+				topic = event.getHeaders().get("topic");
+				if (isJson) {
+					FormatEvent formatEvent = new FormatEvent();
+					formatEvent
+							.setBody(new String(event.getBody(), eventEncode));
+					formatEvent.setHost(event.getHeaders().get("hostip"));
+					formatEvent.setTimestamp(Long.parseLong(event.getHeaders()
+							.get("timestamp")));
+					formatEvent.setPath(event.getHeaders().get("path"));
+					formatEvent.setTopic(topic);
+					msg = JSON.toJSONString(formatEvent);
+				} else {
+					msg = new String(event.getBody(), eventEncode);
+				}
+			} else {
+				result = Status.BACKOFF;
+			}
+			dealWithLog(msg, topic);
+			tx.commit();
+			return result;
+		} catch (Exception e) {
+			try {
+				tx.rollback();
+				return Status.BACKOFF;
+			} catch (Exception e2) {
+				logger.error("kafka sink process ...  Rollback Exception:{}",
+						e2);
+			}
+			logger.error("kafka sink process ...  KafkaSink Exception:{}", e);
+			return Status.BACKOFF;
+		} finally {
+			tx.close();
+		}
+	}
 
-    private void dealWithLog(String msg,String topic) {
-        if(msg == null || topic == null) return;
-        if (map.containsKey(topic)) {
-            if (map.get(topic).size() < 1) {
-                timeoutMap.put(topic,System.currentTimeMillis());
-            }
-            map.get(topic).add(msg);
-        }else {
-            ArrayList list = new ArrayList();
-            list.add(msg);
-            map.put(topic, list);
-            timeoutMap.put(topic,System.currentTimeMillis());
-        }
+	private void dealWithLog(String msg, String topic) {
+		if (topic == null)
+			throw new RuntimeException("topic is null! Please set topic value!");
+		if (msg == null) return;
+		if (map.containsKey(topic)) {
+			if (map.get(topic).size() < 1) {
+				timeoutMap.put(topic, System.currentTimeMillis());
+			}
+			map.get(topic).add(new KeyedMessage<String,String>(topic,msg));
+		} else {
+			List<KeyedMessage<String,String>> firstL = new ArrayList<KeyedMessage<String,String>>();
+			firstL.add(new KeyedMessage<String,String>(topic,msg));
+			map.put(topic, firstL);
+			timeoutMap.put(topic, System.currentTimeMillis());
+		}
 
-        if (map.get(topic).size() >= batchSize || (System.currentTimeMillis() - timeoutMap.get(topic).longValue() > 5000)) {
-            producer.send(new ProducerData<String, String>(topic, map.get(topic)));
-            sinkCounter.addToEventDrainSuccessCount(map.get(topic).size());
-            map.put(topic, new ArrayList());
-        }
+		if (map.get(topic).size() >= batchSize
+				|| (System.currentTimeMillis()
+						- timeoutMap.get(topic).longValue() > 5000)) {
+//			producer.send(new ProducerData<String, String>(topic, map
+//					.get(topic)));
+			producer.send(map.get(topic));
+			sinkCounter.addToEventDrainSuccessCount(map.get(topic).size());
+			map.put(topic, new ArrayList<KeyedMessage<String,String>>());
+		}
 
-    }
+	}
 
-    @Override
-    public void configure(Context context) {
-        this.batchSize = context.getInteger("batchSize", 100);
-        this.eventEncode = context.getString("eventEncode", "UTF-8");
-        this.isJson = context.getBoolean("isJson", true);
-        producer = KafkaSinkUtil.getProducer(context);
+	@Override
+	public void configure(Context context) {
+		this.batchSize = context.getInteger("batchSize", 100);
+		this.eventEncode = context.getString("eventEncode", "UTF-8");
+		this.isJson = context.getBoolean("isJson", true);
+		producer = KafkaSinkUtil.getProducer(context);
 
-        if (sinkCounter == null) {
-            sinkCounter = new SinkCounter(getName());
-        }
-    }
+		if (sinkCounter == null) {
+			sinkCounter = new SinkCounter(getName());
+		}
+	}
 
-    @Override
-    public synchronized void start() {
-        logger.info("Starting {}...", this);
-        sinkCounter.start();
-        super.start();
-    }
+	@Override
+	public synchronized void start() {
+		logger.info("Starting {}...", this);
+		sinkCounter.start();
+		super.start();
+	}
 
-    @Override
-    public synchronized void stop() {
-        producer.close();
-        sinkCounter.stop();
-        super.stop();
-    }
+	@Override
+	public synchronized void stop() {
+		producer.close();
+		sinkCounter.stop();
+		super.stop();
+	}
 }
