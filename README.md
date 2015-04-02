@@ -19,6 +19,7 @@ Configuration of Kafka Sink
     agent_log.sinks.sink_test.batchSize = 100
     agent_log.sinks.sink_test.isJson = true
     agent_log.sinks.sink_test.eventEncode = GBK
+    agent_log.sinks.sink_test.metadata.broker.list = 127.0.0.1:9092
     agent_log.sinks.sink_test.producer.type = async
     agent_log.sinks.sink_test.serializer.class = kafka.serializer.StringEncoder
 ```
