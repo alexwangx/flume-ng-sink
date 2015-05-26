@@ -99,30 +99,34 @@ public class KafkaSink extends AbstractSink implements Configurable {
 		}
 	}
 
-	private void dealWithLog(String msg, String topic) {
-		if (topic == null)
+	private void dealWithLog(String msg, String topics) {
+		if (topics == null)
 			throw new RuntimeException("topic is null! Please set topic value!");
 		if (msg == null) return;
-		if (map.containsKey(topic)) {
-			if (map.get(topic).size() < 1) {
-				timeoutMap.put(topic, System.currentTimeMillis());
+		//TODO multi topics impl
+		String[] topic = topics.split(",");
+		for(int i = 0;i<topic.length;i++){
+			if (map.containsKey(topic[i])) {
+				if (map.get(topic).size() < 1) {
+					timeoutMap.put(topic[i], System.currentTimeMillis());
+				}
+				map.get(topic[i]).add(new KeyedMessage<String,String>(topic[i],msg));
+			} else {
+				List<KeyedMessage<String,String>> firstL = new ArrayList<KeyedMessage<String,String>>();
+				firstL.add(new KeyedMessage<String,String>(topic[i],msg));
+				map.put(topic[i], firstL);
+				timeoutMap.put(topic[i], System.currentTimeMillis());
 			}
-			map.get(topic).add(new KeyedMessage<String,String>(topic,msg));
-		} else {
-			List<KeyedMessage<String,String>> firstL = new ArrayList<KeyedMessage<String,String>>();
-			firstL.add(new KeyedMessage<String,String>(topic,msg));
-			map.put(topic, firstL);
-			timeoutMap.put(topic, System.currentTimeMillis());
-		}
 
-		if (map.get(topic).size() >= batchSize
-				|| (System.currentTimeMillis()
-						- timeoutMap.get(topic).longValue() > 5000)) {
-//			producer.send(new ProducerData<String, String>(topic, map
-//					.get(topic)));
-			producer.send(map.get(topic));
-			sinkCounter.addToEventDrainSuccessCount(map.get(topic).size());
-			map.put(topic, new ArrayList<KeyedMessage<String,String>>());
+			if (map.get(topic[i]).size() >= batchSize
+					|| (System.currentTimeMillis()
+							- timeoutMap.get(topic[i]).longValue() > 5000)) {
+//				producer.send(new ProducerData<String, String>(topic[i], map
+//						.get(topic[i])));
+				producer.send(map.get(topic[i]));
+				sinkCounter.addToEventDrainSuccessCount(map.get(topic[i]).size());
+				map.put(topic[i], new ArrayList<KeyedMessage<String,String>>());
+			}
 		}
 
 	}
