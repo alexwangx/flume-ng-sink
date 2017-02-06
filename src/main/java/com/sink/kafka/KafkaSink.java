@@ -63,7 +63,7 @@ public class KafkaSink extends AbstractSink implements Configurable {
 			tx.begin();
 			event = channel.take();
 			if (event != null) {
-				sinkCounter.incrementEventDrainAttemptCount();
+//				sinkCounter.incrementEventDrainAttemptCount();
 				topic = event.getHeaders().get("topic");
 				if (isJson) {
 					FormatEvent formatEvent = new FormatEvent();
@@ -87,7 +87,8 @@ public class KafkaSink extends AbstractSink implements Configurable {
 		} catch (Exception e) {
 			try {
 				tx.rollback();
-				return Status.BACKOFF;
+                sinkCounter.incrementConnectionFailedCount();
+                return Status.BACKOFF;
 			} catch (Exception e2) {
 				logger.error("kafka sink process ...  Rollback Exception:{}",
 						e2);
@@ -123,8 +124,11 @@ public class KafkaSink extends AbstractSink implements Configurable {
 							- timeoutMap.get(topic[i]).longValue() > 5000)) {
 //				producer.send(new ProducerData<String, String>(topic[i], map
 //						.get(topic[i])));
-				producer.send(map.get(topic[i]));
-				sinkCounter.addToEventDrainSuccessCount(map.get(topic[i]).size());
+                long startTime = System.nanoTime();
+                producer.send(map.get(topic[i]));
+                long endTime = System.nanoTime();
+                logger.debug(String.format("send %s events to kafka used %sms",map.get(topic[i]).size(),(endTime-startTime)/(1000*1000)));
+                sinkCounter.addToEventDrainSuccessCount(map.get(topic[i]).size());
 				map.put(topic[i], new ArrayList<KeyedMessage<String,String>>());
 			}
 		}
